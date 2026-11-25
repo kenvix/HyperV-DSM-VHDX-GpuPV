@@ -1,0 +1,133 @@
+--- a/kernel/drivers/scsi/storvsc_drv.c
++++ b/kernel/drivers/scsi/storvsc_drv.c
+@@ -1823,7 +1823,29 @@
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_SYNO_PORT_MAPPING_V2
++static void storvsc_syno_device_info(struct scsi_device *sdev)
++{
++	struct device *controller = sdev->host->shost_gendev.parent;
++
++	if (!controller || sdev->type != TYPE_DISK ||
++	    sdev->lun > U8_MAX)
++		return;
++
++	write_lock(&sdev->syno_block_info_rwlock);
++	scnprintf(sdev->syno_block_info, sizeof(sdev->syno_block_info),
++		  "pciepath=vmbus-%s-c%u-t%u\nata_port_no=%llu\ndriver=ahci\n",
++		  dev_name(controller), sdev->channel, sdev->id,
++		  (unsigned long long)sdev->lun);
++	write_unlock(&sdev->syno_block_info_rwlock);
++}
++#endif
++
+ static struct scsi_host_template scsi_driver = {
++#ifdef CONFIG_SYNO_PORT_MAPPING_V2
++	.syno_port_type = SYNO_PORT_TYPE_SATA,
++	.syno_sdev_info_enum = storvsc_syno_device_info,
++#endif
+ 	.module	=		THIS_MODULE,
+ 	.name =			"storvsc_host_t",
+ 	.cmd_size =             sizeof(struct storvsc_cmd_request),
+--- a/initrd/addons/addons.sh
++++ b/initrd/addons/addons.sh
+@@ -15,6 +15,15 @@
+ /addons/sortnetif.sh ${1}
+ /addons/misc.sh ${1}
+ /addons/eudev.sh ${1}
++if [ "${1}" = "early" ]; then
++  for module in hv_vmbus scsi_transport_fc hv_storvsc; do
++    [ -d "/sys/module/$module" ] && continue
++    [ -f "/usr/lib/modules/$module.ko" ] || continue
++    if ! insmod "/usr/lib/modules/$module.ko"; then
++      echo "Hyper-V storage: could not load $module" >&2
++    fi
++  done
++fi
+ /addons/disks.sh ${1}
+ /addons/localrss.sh ${1}
+ /addons/notification.sh ${1}
+--- a/initrd/usr/bin/disks.sh
++++ b/initrd/usr/bin/disks.sh
+@@ -32,6 +32,9 @@
+ # SAS (0107) or NVMe (0108). Gates the settle wait only - a machine with none of
+ # these has no disks to wait for.
+ _has_storage_controller() {
++  for _HSC_LINK in /sys/bus/vmbus/drivers/hv_storvsc/*; do
++    [ -L "${_HSC_LINK}" ] && [ -d "${_HSC_LINK}" ] && return 0
++  done
+   lspci -n 2>/dev/null | grep -qE ' (0100|0104|0106|0107|0108):'
+ }
+ 
+@@ -66,7 +69,38 @@
+ _PC_DOMAIN=false
+ [ "$(/bin/uname -r | cut -d'.' -f1)" -ge 5 ] 2>/dev/null && _PC_DOMAIN=true
+ 
++_is_storvsc_disk() {
++  _SV_PATH="$(readlink -f "$1/device" 2>/dev/null)"
++  while [ -n "${_SV_PATH}" ] && [ "${_SV_PATH}" != /sys ] && [ "${_SV_PATH}" != / ]; do
++    case "$(readlink "${_SV_PATH}/driver" 2>/dev/null)" in
++      */vmbus/drivers/hv_storvsc) return 0 ;;
++    esac
++    _SV_PATH="${_SV_PATH%/*}"
++  done
++  return 1
++}
++
++_vmbus_loader_disk() {
++  _VL_PART="$(/sbin/blkid -L ARC3 2>/dev/null)" || return 1
++  _VL_NAME="$(basename "$(readlink -f "${_VL_PART}" 2>/dev/null)")"
++  [ -n "${_VL_NAME}" ] && [ -r "/sys/class/block/${_VL_NAME}/partition" ] || return 1
++  _VL_SYS="$(readlink -f "/sys/class/block/${_VL_NAME}" 2>/dev/null)" || return 1
++  _VL_DISK="$(basename "$(dirname "${_VL_SYS}")")"
++  [ -d "/sys/block/${_VL_DISK}" ] || return 1
++  BOOTDISK="${_VL_DISK}"
++}
++
++_vmbus_slot() {
++  case "${_AT}" in '' | *[!0-9]*) return 1 ;; esac
++  [ "${_AT}" -le 255 ] && [ "${_DR}" = ahci ] && _is_storvsc_disk "$1" || return 1
++  if [ -z "${BOOTDISK}" ] || [ ! -d "/sys/block/${BOOTDISK}" ]; then
++    _vmbus_loader_disk || { _log "Hyper-V: cannot locate the Arc boot disk"; return 1; }
++  fi
++  ! _is_loader "$(basename "$1")" "${_PP}"
++}
++
+ _pc_norm() {
++  case "$1" in vmbus-*) printf '%s\n' "$1"; return 0 ;; esac
+   case "${1}" in
+     '') return 0 ;;
+     0000:*) _PN="${1#0000:}" ;;
+@@ -589,6 +623,15 @@
+     for _F in $(LC_ALL=C printf '%s\n' /sys/block/sata* | sort -V); do
+       [ -e "${_F}" ] || continue
+       _disk_info "${_F}"
++      case "${_PC}" in
++        vmbus-*)
++          if _vmbus_slot "${_F}"; then
++            _queue_sata_slot "${_PC}" "${_DR}" "${_AT}" "${_PP}" ""
++            _log "Hyper-V slot: ${_F} -> ${_PC} port ${_AT}"
++          fi
++          continue
++          ;;
++      esac
+       _is_loader "$(basename "${_F}")" "${_PP}" && { _log "bootloader: ${_F}"; continue; }
+       [ -n "${_PC}" ] || { _log "unknown: ${_F}"; continue; }
+       [ -n "${_DR}" ] || { _log "unknown driver: ${_F}"; continue; }
+@@ -644,6 +687,15 @@
+     for _F in $(LC_ALL=C printf '%s\n' /sys/block/sd* | sort -V); do
+       [ -e "${_F}" ] || continue
+       _disk_info "${_F}"
++      case "${_PC}" in
++        vmbus-*)
++          if _vmbus_slot "${_F}"; then
++            _queue_sata_slot "${_PC}" "${_DR}" "${_AT}" "${_PP}" ""
++            _log "Hyper-V slot: ${_F} -> ${_PC} port ${_AT}"
++          fi
++          continue
++          ;;
++      esac
+       _is_loader "$(basename "${_F}")" "${_PP}" && { _log "bootloader: ${_F}"; continue; }
+       case "${_PP}" in *usb*) continue ;; esac
+       if [ -n "${_PP}" ]; then
