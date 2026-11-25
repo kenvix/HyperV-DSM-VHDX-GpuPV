@@ -2,26 +2,32 @@
 
 当前脚本面向 Arc 4.2.11、SA6400 和第 2 代 Hyper-V 虚拟机，提供 DSM 7.2.1-69057 与 7.4.1-90080 两个构建选项。仓库提供补丁、工具和[技术教程](docs/guide.zh-CN.md)。Arc 镜像、DSM 安装包、编译后的内核模块和 NVIDIA 用户态文件由使用者在本机准备。
 
-## 第一次准备启动盘
+如果你是第一次配置，按[安装教程](docs/guide.zh-CN.md)从创建虚拟机开始。已经准备好模块的人可以直接用下面的命令。只想更新 GPU 库时，跳到最后一节。
 
-1. 按教程配置 Arc，选择 SA6400、目标 DSM 版本和 `legacy` 内核，完成一次构建。关闭测试虚拟机，准备一份独立的 Arc 启动 VHDX。若正在使用检查点，先导出或转换实际连接的启动盘，保留当前磁盘状态。
-2. 按教程准备匹配 DSM 内核的 `hv_storvsc.ko`、`dxgkrnl.ko` 和修改后的 `disks.sh`。WSL2 中需要 Python 3.9 以上、`qemu-img`、`qemu-io`、`zstd`、`blkid` 和可用的 loop 挂载。
-3. 在 WSL2 中，从仓库目录运行下列命令。替换示例路径，并保留足够空间存放启动盘副本和 ARC3 分区镜像。
+## 生成启动盘
+
+准备已配置的 Arc VHDX，以及存放 `hv_storvsc.ko` 和修改版 `disks.sh` 的目录。在 WSL2 中需要 Python 3.9 以上、`qemu-img`、`qemu-io`、`zstd`、`blkid` 和可用的 loop 挂载。在仓库目录执行：
 
 ```sh
 sudo python3 -B tools/update-arc-vhdx.py \
-  --dsm-version 7.2.1 \
-  --source /mnt/d/dsm/arc-configured.vhdx \
-  --output /mnt/d/dsm/arc-hyperv.vhdx \
-  --work-directory /mnt/d/dsm/arc-build-01 \
-  --storvsc /mnt/d/dsm/build/hv_storvsc.ko \
-  --dxgkrnl /mnt/d/dsm/build/dxgkrnl.ko \
-  --disks-script /mnt/d/dsm/build/disks.sh
+  --source /path/to/arc-configured.vhdx \
+  --modules-directory /path/to/modules
 ```
 
-使用 DSM 7.4.1 时，改用 `--dsm-version 7.4.1`，并提供为对应内核准备的模块和盘位脚本。工具会检查源盘上已构建的 DSM 版本。只需 VHDX 支持时可省略 `--dxgkrnl`。7.4.1 的数据盘识别曾在 Web Assistant 验证，GPU-PV 尚未在该版本验证。
+脚本会识别源盘上的 DSM 版本，在同一目录生成 `arc-configured-hyperv.vhdx` 和工作目录。需要 GPU 时，再加 `--dxgkrnl /path/to/modules/dxgkrnl.ko`。如需核对预期版本，可以指定 `--dsm-version`。
 
-将输出盘接到原有启动盘的 SCSI 位置，保留数据盘。首次开机会触发 Arc 重建，再加入内核模块和盘位脚本。后续 Arc 因 DSM 安装而重新生成 `initrd-dsm` 时，也会重新加入这些修改。升级 Arc 后如果替换了 `initrd-apex`，需要重新集成。构建脚本会保留输入 VHDX 和工作目录。
+关闭虚拟机，把输出盘接到原引导盘的 SCSI 位置。首次开机会触发 Arc 重建。数据盘和原引导盘可保留。升级 Arc 如果替换了 `initrd-apex`，需重新集成补丁。
+
+## 分配 NVIDIA GPU
+
+在管理员 PowerShell 中运行。先预览，再执行分配：
+
+```powershell
+.\scripts\Set-DsmGpuPartition.ps1 -VMName '<你的虚拟机名称>' -WhatIf
+.\scripts\Set-DsmGpuPartition.ps1 -VMName '<你的虚拟机名称>'
+```
+
+只有一块可分区的 NVIDIA GPU 时，脚本会自动选择。有多块时，先用 `-List` 查询，再用 `-InstancePath` 指定。7.2.1 的安装环境已验证 GPU 枚举和 CUDA 显存读写。7.4.1 已验证数据盘识别，GPU-PV 尚未验证。
 
 ## 在 DSM 安装或更新 NVIDIA 用户态库
 

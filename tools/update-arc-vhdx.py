@@ -65,18 +65,28 @@ def write_partition(disk, image, offset, workspace):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--work-directory", required=True, type=Path)
-    parser.add_argument("--dsm-version", choices=DSM_BUILDS, default="7.2.1")
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--work-directory", type=Path)
+    parser.add_argument("--dsm-version", choices=DSM_BUILDS, help="Check the detected version")
+    parser.add_argument("--modules-directory", type=Path, help="Directory containing hv_storvsc.ko and disks.sh")
     parser.add_argument("--dxgkrnl", type=Path, help="Optional GPU-PV kernel module")
     for flag in ("storvsc", "disks-script"):
-        parser.add_argument("--" + flag, required=True, type=Path)
+        parser.add_argument("--" + flag, type=Path)
     args = parser.parse_args()
     if os.geteuid() != 0:
         parser.error("Run as root in the WSL distribution to mount ARC3")
     args.source = args.source.resolve(strict=True)
-    args.output = args.output.resolve()
-    workspace = args.work_directory.resolve()
+    args.output = (args.output or args.source.with_name(f"{args.source.stem}-hyperv.vhdx")).resolve()
+    workspace = (args.work_directory or args.output.with_suffix(".work")).resolve()
+    if args.modules_directory:
+        args.storvsc = args.storvsc or args.modules_directory / "hv_storvsc.ko"
+        args.disks_script = args.disks_script or args.modules_directory / "disks.sh"
+    for name, path in (("StorVSC module", args.storvsc), ("disk script", args.disks_script),
+                       ("GPU-PV module", args.dxgkrnl)):
+        if name == "GPU-PV module" and path is None:
+            continue
+        if path is None or not path.is_file():
+            parser.error(f"{name} is missing. Provide --modules-directory or explicit file paths.")
     if args.output.exists() or args.output.suffix.lower() != ".vhdx":
         parser.error("--output must be a new .vhdx file")
     if args.source.suffix.lower() != ".vhdx":
@@ -94,8 +104,9 @@ def main():
     partition.mkdir()
     run("mount", "-o", "loop", image, partition)
     try:
-        check_dsm_version(partition, args.dsm_version)
-        install_builder(partition, args.dsm_version)
+        version = check_dsm_version(partition, args.dsm_version)
+        print(f"Detected DSM {version} ({DSM_BUILDS[version]})")
+        install_builder(partition, version)
         verify_builder(partition)
         build_payload(partition, args)
     finally:

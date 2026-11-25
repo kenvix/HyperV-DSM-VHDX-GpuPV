@@ -31,19 +31,21 @@ def verify_builder(partition):
         raise ValueError("The Arc builder does not have the Hyper-V hooks")
 
 
-def check_dsm_version(partition, version):
-    expected = DSM_BUILDS[version].encode()
+def check_dsm_version(partition, version=None):
     entries = archive_entries((partition / "initrd-dsm").read_bytes())
     for name, _, contents, *_ in entries:
         if name == "etc/VERSION":
             fields = dict(line.split(b"=", 1) for line in contents.splitlines() if b"=" in line)
             actual = fields.get(b"buildnumber", b"").strip(b"\"'")
-            if actual != expected:
+            detected = next((name for name, build in DSM_BUILDS.items() if build.encode() == actual), None)
+            if detected is None:
+                raise ValueError(f"Unsupported DSM build: {actual.decode(errors='replace') or '(missing)'}")
+            if version is not None and version != detected:
                 raise ValueError(
-                    f"Selected DSM {version} expects build {expected.decode()}, "
-                    f"but initrd-dsm reports {actual.decode(errors='replace') or '(missing)'}"
+                    f"Selected DSM {version} expects build {DSM_BUILDS[version]}, "
+                    f"but initrd-dsm reports {actual.decode()}"
                 )
-            return
+            return detected
     raise ValueError("Cannot read the configured DSM version from initrd-dsm")
 
 
