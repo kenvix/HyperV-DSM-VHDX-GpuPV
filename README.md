@@ -8,8 +8,8 @@
 
 | DSM 版本 | 引导盘功能 |
 | --- | --- |
-| 7.2.1-69057 | Hyper-V 数据盘识别，包含 GPU-PV 内核模块 |
-| 7.4.1-90080 | Hyper-V 数据盘识别，包含为 ORC 内核编译的 GPU-PV 模块 |
+| 7.2.1-69057 | Hyper-V StorVSC 数据盘识别、DXGKRNL GPU-PV 内核模块 |
+| 7.4.1-90080 | Hyper-V StorVSC 数据盘识别、DXGKRNL GPU-PV 内核模块 |
 
 1. 创建第 2 代虚拟机，关闭安全启动，并连接虚拟交换机。
 2. 将下载的 VHDX 接到 SCSI 控制器并设为第一启动项。再添加一块独立的数据 VHDX。
