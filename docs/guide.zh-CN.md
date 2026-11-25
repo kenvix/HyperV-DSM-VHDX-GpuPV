@@ -2,6 +2,8 @@
 
 先让 DSM 安装器识别数据盘，再按需加入 GPU。本文使用 Arc 4.2.11、SA6400 和第 2 代 Hyper-V 虚拟机。DSM 7.2.1-69057 和 7.4.1-90080 都有 VHDX 识别记录。GPU-PV 和 CUDA 显存读写已在 7.2.1 的安装环境验证，7.4.1 的 GPU-PV 尚未验证。
 
+如果只想安装 DSM，可从[发布页](https://github.com/kenvix/HyperV-DSM-VHDX-GpuPV/releases)下载预配置的引导 VHDX，然后按[仓库首页](../README.md#下载引导盘)操作。下面介绍自行构建的步骤。
+
 ## 1. 建立虚拟机并配置 Arc
 
 1. 创建第 2 代虚拟机，关闭安全启动，连接可用的虚拟交换机。
@@ -39,6 +41,8 @@ cp kernel/drivers/scsi/hv_storvsc.ko initrd/usr/bin/disks.sh modules/
 ```
 
 编译需要 GCC、Make、Flex、Bison 和内核构建依赖。如果新版 GCC 把旧版 `objtool` 的 `use-after-free` 警告视为错误，可为 Make 加上 `WERROR=0`、`HOSTCFLAGS=-Wno-error=use-after-free` 和 `EXTRA_WARNINGS=-Wno-error=use-after-free`。
+
+为本项目的 7.4.1 引导盘编译时，需要在 `make olddefconfig` 之前启用 `CONFIG_UNWINDER_ORC`，并禁用 `CONFIG_UNWINDER_FRAME_POINTER`。该版本的 Arc `legacy` 内核使用 ORC。模块即使显示相同的 `5.10.55+` 版本标记，内部布局也必须和运行内核一致。
 
 ## 3. 按需准备 GPU-PV 模块
 
