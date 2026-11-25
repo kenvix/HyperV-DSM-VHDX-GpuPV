@@ -8,7 +8,7 @@ import struct
 import subprocess
 import tarfile
 
-from persist_arc_hyperv import install_builder, verify_builder
+from persist_arc_hyperv import DSM_BUILDS, check_dsm_version, install_builder, verify_builder
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -28,9 +28,10 @@ def build_payload(partition, args):
         raise ValueError("Use an Arc source disk without a previously installed payload")
     with tarfile.open(staged, "x") as result:
         put_file(result, args.storvsc, "usr/lib/modules/hv_storvsc.ko")
-        put_file(result, args.dxgkrnl, "usr/lib/modules/dxgkrnl.ko")
         put_file(result, args.disks_script, "usr/bin/disks.sh", 0o755)
-        put_file(result, REPO / "scripts/gpu-pv.sh", "addons/gpu-pv.sh", 0o755)
+        if args.dxgkrnl:
+            put_file(result, args.dxgkrnl, "usr/lib/modules/dxgkrnl.ko")
+            put_file(result, REPO / "scripts/gpu-pv.sh", "addons/gpu-pv.sh", 0o755)
     staged.replace(existing)
     (partition / "hyperv-rebuild-once").touch(exist_ok=True)
 
@@ -66,7 +67,9 @@ def main():
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--work-directory", required=True, type=Path)
-    for flag in ("storvsc", "dxgkrnl", "disks-script"):
+    parser.add_argument("--dsm-version", choices=DSM_BUILDS, default="7.2.1")
+    parser.add_argument("--dxgkrnl", type=Path, help="Optional GPU-PV kernel module")
+    for flag in ("storvsc", "disks-script"):
         parser.add_argument("--" + flag, required=True, type=Path)
     args = parser.parse_args()
     if os.geteuid() != 0:
@@ -91,7 +94,8 @@ def main():
     partition.mkdir()
     run("mount", "-o", "loop", image, partition)
     try:
-        install_builder(partition)
+        check_dsm_version(partition, args.dsm_version)
+        install_builder(partition, args.dsm_version)
         verify_builder(partition)
         build_payload(partition, args)
     finally:

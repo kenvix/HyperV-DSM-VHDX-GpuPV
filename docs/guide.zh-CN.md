@@ -48,7 +48,7 @@ if ($State -is [string]) {
 
 ## 三、让 StorVSC 和 DSM 盘位脚本使用相同的标识
 
-[SA6400 Hyper-V 存储补丁](hyperv-storvsc-sa6400.patch) 修改了三个文件：
+[SA6400 Hyper-V 存储补丁](../patches/hyperv-storvsc-sa6400.patch) 修改了三个文件：
 
 | 文件 | 修改 |
 | --- | --- |
@@ -209,3 +209,11 @@ CUDA status: 0
 引导盘负责加载 StorVSC 和 `dxgkrnl`，并提供 DSM 所需的盘位信息。NVIDIA 用户态库由已安装的 DSM 从本地文件系统加载。将两部分分开后，首次构建 Arc 时不需要 NVIDIA 用户态文件。Windows 更新驱动后，只需从 WSL2 导出匹配的文件，在 DSM 内更新 `/usr/lib/wsl`，再验证 GPU 枚举和 CUDA。
 
 新的构建脚本将兼容模块和盘位脚本写入独立的启动盘副本。库导出脚本则生成单独的归档，DSM 安装脚本会备份当前目录，再安装新文件。具体命令见[仓库首页](../README.md)。
+
+如果 DSM 套件在启动时没有继承终端里的 `LD_LIBRARY_PATH`，可以用安装脚本的 `--system-libs` 选项，将所需库链接到 `/usr/lib`。库文件仍集中存放在 `/usr/lib/wsl`，更新时只需替换这一目录。遇到已有的同名系统库时，脚本会停止。
+
+## 十、用于 DSM 7.4.1
+
+SA6400 的 DSM 7.4.1-90080 仍需让 StorVSC 报告 VMBus 控制器和 LUN，再由 `disks.sh` 把它们登记为内部盘位。在 7.4.1 的独立测试中，应用存储补丁后，Web Assistant 识别到一块数据盘。
+
+准备 7.4.1 启动盘时，先用 Arc 为该版本构建，再向工具传入 `--dsm-version 7.4.1`，以及适用于该版本的 StorVSC 模块和盘位脚本。Arc 重建时只会为选定的 DSM 构建号应用补丁。7.4.1 的 GPU-PV 需要另行验证，可先省略 `--dxgkrnl` 参数。

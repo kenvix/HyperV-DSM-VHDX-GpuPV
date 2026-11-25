@@ -2,6 +2,8 @@
 
 import subprocess
 
+DSM_BUILDS = {"7.2.1": "69057", "7.4.1": "90080"}
+
 
 def archive_entries(data):
     offset = 0
@@ -29,7 +31,23 @@ def verify_builder(partition):
         raise ValueError("The Arc builder does not have the Hyper-V hooks")
 
 
-def install_builder(partition):
+def check_dsm_version(partition, version):
+    expected = DSM_BUILDS[version].encode()
+    entries = archive_entries((partition / "initrd-dsm").read_bytes())
+    for name, _, contents, *_ in entries:
+        if name == "etc/VERSION":
+            fields = dict(line.split(b"=", 1) for line in contents.splitlines() if b"=" in line)
+            actual = fields.get(b"buildnumber", b"").strip(b"\"'")
+            if actual != expected:
+                raise ValueError(
+                    f"Selected DSM {version} expects build {expected.decode()}, "
+                    f"but initrd-dsm reports {actual.decode(errors='replace') or '(missing)'}"
+                )
+            return
+    raise ValueError("Cannot read the configured DSM version from initrd-dsm")
+
+
+def install_builder(partition, version):
     apex = partition / "initrd-apex"
     if apex.with_suffix(".before-hyperv").exists():
         raise ValueError("Arc builder backup already exists")
@@ -37,20 +55,24 @@ def install_builder(partition):
     source = subprocess.check_output(["zstd", "-dc", apex])
     anchor = b"# Reassembly ramdisk\n"
     hook = br'''# Install the local Hyper-V compatibility payload before packing.
-if [ "${MODEL}" = SA6400 ] && [ "${buildnumber}" = 69057 ] &&
+if [ "${MODEL}" = SA6400 ] && [ "${buildnumber}" = @DSM_BUILD@ ] &&
    [ -f "${PART3_PATH}/hyperv-payload.tar" ]; then
   if ! tar -xf "${PART3_PATH}/hyperv-payload.tar" -C "${RAMDISK_PATH}"; then
     echo "Could not install the Hyper-V ramdisk payload" >&2
     exit 1
   fi
-  if ! grep -Fxq '/addons/gpu-pv.sh "${1}"' "${RAMDISK_PATH}/addons/addons.sh"; then
+  if ! grep -Fq 'Hyper-V storage modules' "${RAMDISK_PATH}/addons/addons.sh"; then
+    grep -q '^/addons/disks\.sh ' "${RAMDISK_PATH}/addons/addons.sh" || exit 1
     sed -i '/^\/addons\/disks\.sh /i\if [ "${1}" = patches ]; then\n  for module in hv_vmbus scsi_transport_fc hv_storvsc; do\n    [ -d "/sys/module/${module}" ] || insmod "/usr/lib/modules/${module}.ko"\n  done\nfi' "${RAMDISK_PATH}/addons/addons.sh" || exit 1
-    sed -i '/^\/addons\/disks\.sh /a\/addons/gpu-pv.sh "${1}"' "${RAMDISK_PATH}/addons/addons.sh" || exit 1
-    grep -Fxq '/addons/gpu-pv.sh "${1}"' "${RAMDISK_PATH}/addons/addons.sh" || exit 1
+    sed -i '/^\/addons\/disks\.sh /i\# Hyper-V storage modules' "${RAMDISK_PATH}/addons/addons.sh" || exit 1
+    if [ -x "${RAMDISK_PATH}/addons/gpu-pv.sh" ]; then
+      sed -i '/^\/addons\/disks\.sh /a\/addons/gpu-pv.sh "${1}"' "${RAMDISK_PATH}/addons/addons.sh" || exit 1
+      grep -Fxq '/addons/gpu-pv.sh "${1}"' "${RAMDISK_PATH}/addons/addons.sh" || exit 1
+    fi
   fi
 fi
 
-'''
+'''.replace(b"@DSM_BUILD@", DSM_BUILDS[version].encode())
     changes = []
     for name, header, contents, start, body, end in archive_entries(source):
         if name == "opt/arc/ramdisk-patch.sh":
