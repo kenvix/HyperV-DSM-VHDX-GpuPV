@@ -4,12 +4,12 @@
 
 ## 下载引导盘
 
-从 [GitHub Releases](https://github.com/kenvix/HyperV-DSM-VHDX-GpuPV/releases) 下载对应版本的 VHDX。
+从 [GitHub Releases](https://github.com/kenvix/HyperV-DSM-VHDX-GpuPV/releases) 下载对应版本的 `.vhdx.xz`，用 7-Zip 解压得到 `.vhdx`。也可以在 WSL2 中运行 `xz -dk 文件名.vhdx.xz`。
 
 | DSM 版本 | 引导盘功能 |
 | --- | --- |
 | 7.2.1-69057 | Hyper-V 数据盘识别，包含 GPU-PV 内核模块 |
-| 7.4.1-90080 | Hyper-V 数据盘识别 |
+| 7.4.1-90080 | Hyper-V 数据盘识别，包含为 ORC 内核编译的 GPU-PV 模块 |
 
 1. 创建第 2 代虚拟机，关闭安全启动，并连接虚拟交换机。
 2. 将下载的 VHDX 接到 SCSI 控制器并设为第一启动项。再添加一块独立的数据 VHDX。
@@ -42,7 +42,7 @@ sudo python3 -B tools/update-arc-vhdx.py \
 .\scripts\Set-DsmGpuPartition.ps1 -VMName '<你的虚拟机名称>'
 ```
 
-只有一块可分区的 NVIDIA GPU 时，脚本会自动选择。有多块时，先用 `-List` 查询，再用 `-InstancePath` 指定。7.2.1 的安装环境已验证 GPU 枚举和 CUDA 显存读写。7.4.1 已验证数据盘识别，GPU-PV 尚未验证。
+只有一块可分区的 NVIDIA GPU 时，脚本会自动选择。有多块时，先用 `-List` 查询，再用 `-InstancePath` 指定。两版引导盘都包含 `dxgkrnl`。分配 GPU 后，继续安装用户态库，再验证 GPU 枚举和 CUDA 显存读写。
 
 ## 在 DSM 安装或更新 NVIDIA 用户态库
 

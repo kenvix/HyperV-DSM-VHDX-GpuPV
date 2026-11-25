@@ -1,6 +1,6 @@
 # 在 Hyper-V 上安装 DSM 并使用 NVIDIA GPU
 
-先让 DSM 安装器识别数据盘，再按需加入 GPU。本文使用 Arc 4.2.11、SA6400 和第 2 代 Hyper-V 虚拟机。DSM 7.2.1-69057 和 7.4.1-90080 都有 VHDX 识别记录。GPU-PV 和 CUDA 显存读写已在 7.2.1 的安装环境验证，7.4.1 的 GPU-PV 尚未验证。
+先让 DSM 安装器识别数据盘，再按需加入 GPU。本文使用 Arc 4.2.11、SA6400 和第 2 代 Hyper-V 虚拟机。DSM 7.2.1-69057 和 7.4.1-90080 的引导盘都包含 VHDX 盘位补丁和 `dxgkrnl`。7.4.1 使用按该版本内核配置编译的模块。
 
 如果只想安装 DSM，可从[发布页](https://github.com/kenvix/HyperV-DSM-VHDX-GpuPV/releases)下载预配置的引导 VHDX，然后按[仓库首页](../README.md#下载引导盘)操作。下面介绍自行构建的步骤。
 
