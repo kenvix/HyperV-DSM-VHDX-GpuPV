@@ -6,9 +6,16 @@ if [ "${1:-}" = "--system-libs" ]; then
   system_libs=true
   shift
 fi
-if [ "$#" -ne 1 ] || [ "$(id -u)" -ne 0 ]; then
+if [ "$#" -ne 1 ]; then
   echo "Usage (as root): sh install-nvidia-runtime.sh [--system-libs] /path/to/runtime.tar" >&2
   exit 1
+fi
+if command -v id >/dev/null 2>&1; then
+  user_id=$(id -u 2>/dev/null || printf '%s' unknown)
+  if [ "$user_id" != 0 ]; then
+    echo "Usage (as root): sh install-nvidia-runtime.sh [--system-libs] /path/to/runtime.tar" >&2
+    exit 1
+  fi
 fi
 
 archive=$1
