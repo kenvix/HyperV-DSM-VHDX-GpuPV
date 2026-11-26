@@ -21,9 +21,9 @@ def put_file(archive, source, name, mode=0o644):
         archive.addfile(item, stream)
 
 
-def build_payload(partition, args):
-    existing = partition / "hyperv-payload.tar"
-    staged = partition / "hyperv-payload.next.tar"
+def build_payload(partition, args, version):
+    existing = partition / f"hyperv-payload-{DSM_BUILDS[version]}.tar"
+    staged = existing.with_suffix(".next.tar")
     if existing.exists():
         raise ValueError("Use an Arc source disk without a previously installed payload")
     with tarfile.open(staged, "x") as result:
@@ -108,7 +108,7 @@ def main():
         print(f"Detected DSM {version} ({DSM_BUILDS[version]})")
         install_builder(partition, version)
         verify_builder(partition)
-        build_payload(partition, args)
+        build_payload(partition, args, version)
     finally:
         run("umount", partition)
     with args.source.open("rb") as source, args.output.open("xb") as output:

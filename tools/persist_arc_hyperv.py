@@ -27,7 +27,9 @@ def archive_entries(data):
 
 def verify_builder(partition):
     content = subprocess.check_output(["zstd", "-dc", partition / "initrd-apex"])
-    if b"hyperv-payload.tar" not in content or b"hyperv-rebuild-once" not in content:
+    if (b"hyperv-payload-${buildnumber}.tar" not in content
+            or b"Missing Hyper-V modules for DSM build" not in content
+            or b"hyperv-rebuild-once" not in content):
         raise ValueError("The Arc builder does not have the Hyper-V hooks")
 
 
@@ -57,9 +59,13 @@ def install_builder(partition, version):
     source = subprocess.check_output(["zstd", "-dc", apex])
     anchor = b"# Reassembly ramdisk\n"
     hook = br'''# Install the local Hyper-V compatibility payload before packing.
-if [ "${MODEL}" = SA6400 ] && [ "${buildnumber}" = @DSM_BUILD@ ] &&
-   [ -f "${PART3_PATH}/hyperv-payload.tar" ]; then
-  if ! tar -xf "${PART3_PATH}/hyperv-payload.tar" -C "${RAMDISK_PATH}"; then
+if [ "${MODEL}" = SA6400 ]; then
+  hyperv_payload="${PART3_PATH}/hyperv-payload-${buildnumber}.tar"
+  if [ ! -f "${hyperv_payload}" ]; then
+    echo "Missing Hyper-V modules for DSM build ${buildnumber}; install the matching payload before rebuilding" >&2
+    exit 1
+  fi
+  if ! tar -xf "${hyperv_payload}" -C "${RAMDISK_PATH}"; then
     echo "Could not install the Hyper-V ramdisk payload" >&2
     exit 1
   fi
@@ -74,7 +80,7 @@ if [ "${MODEL}" = SA6400 ] && [ "${buildnumber}" = @DSM_BUILD@ ] &&
   fi
 fi
 
-'''.replace(b"@DSM_BUILD@", DSM_BUILDS[version].encode())
+'''
     changes = []
     for name, header, contents, start, body, end in archive_entries(source):
         if name == "opt/arc/ramdisk-patch.sh":
